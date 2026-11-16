@@ -74,35 +74,8 @@ def run():
     [data-testid="stMetric"]{background:#fff;border:1px solid #EDE4D9;border-radius:18px;padding:18px}
     .pilot-hero{background:linear-gradient(110deg,#A83B18,#E85D13,#FF9D24);color:#fff;padding:30px;border-radius:22px;margin-bottom:20px}
     .pilot-hero h2{color:white!important;margin:0}.pilot-hero p{color:white!important}
-    /* Secure member pages: readable text on the existing light theme. */
-    [data-testid="stSidebar"], [data-testid="stSidebar"] * {color:#302820;}
-    [data-testid="stSidebar"] {background:#FFFCF7!important;}
-    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
-    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {color:#574B3F!important;}
-    [data-testid="stWidgetLabel"] p,
-    [data-testid="stTextInput"] label p,
-    [data-testid="stNumberInput"] label p,
-    [data-testid="stDateInput"] label p,
-    [data-testid="stSelectbox"] label p,
-    [data-testid="stRadio"] label p,
-    [data-testid="stMetricLabel"] p,
-    [data-testid="stTabs"] button[role="tab"] p {color:#494036!important;opacity:1!important;}
-    [data-testid="stMetricValue"] > div,
-    [data-testid="stMetricValue"] {color:#28231F!important;opacity:1!important;}
-    [data-testid="stMetric"] {background:#FFFFFF!important;border:1px solid #E9DFD4;border-radius:18px;}
-    [data-testid="stMetricLabel"] {color:#55483D!important;}
-    [data-testid="stTabs"] button[role="tab"] {color:#55483D!important;opacity:1!important;}
-    [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {color:#A93817!important;}
-    [data-testid="stTabs"] button[role="tab"][aria-selected="true"] p {color:#A93817!important;}
-    [data-testid="stTabs"] button[role="tab"][aria-selected="false"] p {color:#55483D!important;}
-    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
-    [data-testid="stTextInput"] input,
-    [data-testid="stNumberInput"] input,
-    [data-testid="stDateInput"] input {background:#FFFFFF!important;color:#302820!important;}
-    [data-testid="stSelectbox"] [data-baseweb="select"] span {color:#302820!important;}
-    [data-testid="stFormSubmitButton"] button[kind="primary"] p,
-    .stButton button[kind="primary"] p {color:#FFFFFF!important;}
-    [data-testid="stAlert"] p {opacity:1!important;}
+    div[role="radiogroup"] label{background:#FFFFFF!important;border:1px solid #D8C8B4;border-radius:999px;padding:8px 14px!important;margin-right:8px!important;color:#2F2823!important}
+    div[role="radiogroup"] label:has(input:checked){background:#FBE8DB!important;border-color:#D95116!important;box-shadow:inset 0 0 0 1px #D95116}
     </style>''', unsafe_allow_html=True)
     st.sidebar.image('logo.png', width=180)
     lang = st.sidebar.radio('Language / Taal', ['EN', 'AFR'], horizontal=True)
@@ -165,15 +138,23 @@ def run():
         a.metric(t('Approved kilometres','Goedgekeurde kilometers'), f'{approved.distance_km.sum():,.1f} km' if not approved.empty else '0 km')
         b.metric(t('Approved races','Goedgekeurde wedlope'),len(approved))
         c.metric(t('Awaiting review','Wag op hersiening'),int((active.status=='Pending').sum()) if not active.empty else 0)
-        tabs=st.tabs([t('My results','My uitslae'), t('Add a race','Voeg wedloop by')])
-        with tabs[0]:
+        st.markdown(f"<div style='background:#FFF8EF;border:1px solid #E5D6C5;border-radius:16px;padding:14px 16px;margin:12px 0 18px 0;color:#4A4038'><strong>{t('Choose what you want to do','Kies wat jy wil doen')}</strong><br>{t('Use the buttons below to view your saved results or add a new race.','Gebruik die knoppies hieronder om jou uitslae te sien of ’n nuwe wedloop by te voeg.')}</div>", unsafe_allow_html=True)
+        member_view = st.radio(
+            t('Member action','Lede-aksie'),
+            [t('My results','My uitslae'), t('Add a race','Voeg wedloop by')],
+            horizontal=True,
+            label_visibility='collapsed'
+        )
+        if member_view == t('My results','My uitslae'):
             if not active.empty:
                 display = active[['race_name','race_date','discipline','distance_km','finish_seconds','status']].copy()
                 display['finish_seconds']=display.finish_seconds.map(_fmt_time)
                 display.columns=['Race','Date','Type','Distance (km)','Finish time','Status']
                 _render(display)
-            else: st.info(t('No races for this year.','Geen wedlope vir hierdie jaar nie.'))
-        with tabs[1]:
+            else:
+                st.info(t('No races for this year yet. Use “Add a race” below to submit your first result.','Nog geen wedlope vir hierdie jaar nie. Gebruik “Voeg wedloop by” hieronder om jou eerste uitslag in te dien.'))
+        else:
+            st.markdown(f"<div style='background:#FFFFFF;border:1px solid #E5D6C5;border-radius:16px;padding:14px 16px;margin:8px 0 16px 0;color:#4A4038'><strong>{t('Add a new race result','Voeg ’n nuwe wedloopuitslag by')}</strong><br>{t('Fill in the form below. Your submission will be saved and sent to the committee for approval.','Vul die vorm hieronder in. Jou inskrywing sal gestoor word en na die komitee vir goedkeuring gestuur word.')}</div>", unsafe_allow_html=True)
             with st.form('new_race'):
                 race=st.text_input(t('Race name','Wedloopnaam'))
                 c1,c2=st.columns(2)
