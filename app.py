@@ -11,6 +11,16 @@ from awards_engine import (METRICS, SCORE_LABELS, METRIC_HELP, default_awards,
                            new_award, compute_award, freeze_snapshot)
 
 st.set_page_config(page_title='Bethlehem Marathon Klub | BMK', page_icon='🏃', layout='wide', initial_sidebar_state='expanded')
+# Activate the separate RLS-backed pilot only when its two project secrets exist.
+try:
+    LIVE = bool(st.secrets.get('BMK_SUPABASE_URL') and st.secrets.get('BMK_SUPABASE_KEY'))
+except (FileNotFoundError, KeyError):
+    LIVE = False
+if LIVE:
+    from secure_app import run
+    run()
+    st.stop()
+
 ROOT = Path(__file__).parent
 seed = json.loads((ROOT / 'demo.json').read_text(encoding='utf-8'))
 if 'member_ages' not in st.session_state:
