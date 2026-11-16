@@ -74,6 +74,35 @@ def run():
     [data-testid="stMetric"]{background:#fff;border:1px solid #EDE4D9;border-radius:18px;padding:18px}
     .pilot-hero{background:linear-gradient(110deg,#A83B18,#E85D13,#FF9D24);color:#fff;padding:30px;border-radius:22px;margin-bottom:20px}
     .pilot-hero h2{color:white!important;margin:0}.pilot-hero p{color:white!important}
+    /* Secure member pages: readable text on the existing light theme. */
+    [data-testid="stSidebar"], [data-testid="stSidebar"] * {color:#302820;}
+    [data-testid="stSidebar"] {background:#FFFCF7!important;}
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {color:#574B3F!important;}
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stTextInput"] label p,
+    [data-testid="stNumberInput"] label p,
+    [data-testid="stDateInput"] label p,
+    [data-testid="stSelectbox"] label p,
+    [data-testid="stRadio"] label p,
+    [data-testid="stMetricLabel"] p,
+    [data-testid="stTabs"] button[role="tab"] p {color:#494036!important;opacity:1!important;}
+    [data-testid="stMetricValue"] > div,
+    [data-testid="stMetricValue"] {color:#28231F!important;opacity:1!important;}
+    [data-testid="stMetric"] {background:#FFFFFF!important;border:1px solid #E9DFD4;border-radius:18px;}
+    [data-testid="stMetricLabel"] {color:#55483D!important;}
+    [data-testid="stTabs"] button[role="tab"] {color:#55483D!important;opacity:1!important;}
+    [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {color:#A93817!important;}
+    [data-testid="stTabs"] button[role="tab"][aria-selected="true"] p {color:#A93817!important;}
+    [data-testid="stTabs"] button[role="tab"][aria-selected="false"] p {color:#55483D!important;}
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    [data-testid="stTextInput"] input,
+    [data-testid="stNumberInput"] input,
+    [data-testid="stDateInput"] input {background:#FFFFFF!important;color:#302820!important;}
+    [data-testid="stSelectbox"] [data-baseweb="select"] span {color:#302820!important;}
+    [data-testid="stFormSubmitButton"] button[kind="primary"] p,
+    .stButton button[kind="primary"] p {color:#FFFFFF!important;}
+    [data-testid="stAlert"] p {opacity:1!important;}
     </style>''', unsafe_allow_html=True)
     st.sidebar.image('logo.png', width=180)
     lang = st.sidebar.radio('Language / Taal', ['EN', 'AFR'], horizontal=True)
