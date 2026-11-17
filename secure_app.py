@@ -67,6 +67,27 @@ def _fetch_all(query_builder, chunk=1000):
     raise RuntimeError('Too many rows for pilot: contact administrator')
 
 
+
+def _field_heading(label, container=st):
+    """Always-visible high-contrast labels independent of Streamlit widget theme.
+
+    Native widget labels remain available to assistive tech but are visually
+    collapsed, avoiding the unreadable dark-theme-on-light-background mismatch.
+    """
+    clean = escape(str(label))
+    container.markdown(
+        '<div class="bmk-visible-label" '
+        'style="background:#FFFFFF!important;color:#24201B!important;'
+        'font-size:16px!important;line-height:1.4!important;'
+        'font-weight:750!important;opacity:1!important;'
+        'padding:7px 12px!important;margin:10px 0 6px!important;'
+        'border:1px solid #DACBBA!important;border-left:4px solid #B74715!important;'
+        'border-radius:8px!important">'
+        '<span style="color:#24201B!important;opacity:1!important">'
+        + clean + '</span></div>',
+        unsafe_allow_html=True
+    )
+
 def run():
     st.markdown('''<style>
     /* Bethlehem Marathon Klub: high-contrast light theme for ALL live pages.
@@ -291,7 +312,8 @@ def run():
     .stApp .pilot-hero h2 {margin:0!important;}
     </style>''', unsafe_allow_html=True)
     st.sidebar.image('logo.png', width=180)
-    lang = st.sidebar.radio('Language / Taal', ['EN', 'AFR'], horizontal=True)
+    _field_heading('Language / Taal', st.sidebar)
+    lang = st.sidebar.radio('Language / Taal', ['EN', 'AFR'], horizontal=True, label_visibility='collapsed')
     def t(en, af): return af if lang == 'AFR' else en
 
     sb = _client()
@@ -301,8 +323,10 @@ def run():
         st.info(t('Pilot access is invitation-only. Ask the club administrator for your account.',
                   'Toetsweergawe is slegs op uitnodiging. Vra die klubadministrateur vir jou rekening.'))
         with st.form('login_form'):
-            email = st.text_input(t('Email address', 'E-posadres'))
-            password = st.text_input(t('Password', 'Wagwoord'), type='password')
+            _field_heading(t('Email address', 'E-posadres'))
+            email = st.text_input(t('Email address', 'E-posadres'), label_visibility='collapsed')
+            _field_heading(t('Password', 'Wagwoord'))
+            password = st.text_input(t('Password', 'Wagwoord'), type='password', label_visibility='collapsed')
             submit = st.form_submit_button(t('Sign in', 'Meld aan'), type='primary')
         if submit:
             try:
@@ -330,9 +354,11 @@ def run():
     can_manage = profile['role'] in ('committee','awards_admin','super_admin')
     st.sidebar.markdown('**'+escape(profile['display_name'])+'**')
     st.sidebar.caption(t('Secure pilot • connected database', 'Veilige proefweergawe • gekoppelde databasis'))
+    _field_heading(t('View', 'Aansig'), st.sidebar)
     view = st.sidebar.radio(t('View', 'Aansig'),
                             ['Member', 'Committee'] if can_manage else ['Member'],
-                            format_func=lambda v: t('My dashboard','My oorsig') if v == 'Member' else t('Committee','Komitee'))
+                            format_func=lambda v: t('My dashboard','My oorsig') if v == 'Member' else t('Committee','Komitee'),
+                            label_visibility='collapsed')
     if st.sidebar.button(t('Sign out', 'Meld af')):
         sb.auth.sign_out(); st.rerun()
     st.markdown(f'<div class="pilot-hero"><h2>{t("Your running year" if view == "Member" else "Committee command centre", "Jou hardloopjaar" if view == "Member" else "Komitee-beheersentrum")}</h2><p>{escape(profile["display_name"])} · Bethlehem Marathon Klub</p></div>', unsafe_allow_html=True)
@@ -344,7 +370,8 @@ def run():
             st.error(t('Unable to retrieve your race results.','Kan nie jou wedloopuitslae laai nie.'))
             return
         d = pd.DataFrame(rows)
-        year = st.selectbox(t('Season','Seisoen'), sorted(set([date.today().year] + ([int(str(x)[:4]) for x in d.race_date if x] if not d.empty else [])), reverse=True))
+        _field_heading(t('Season','Seisoen'))
+        year = st.selectbox(t('Season','Seisoen'), sorted(set([date.today().year] + ([int(str(x)[:4]) for x in d.race_date if x] if not d.empty else [])), reverse=True), label_visibility='collapsed')
         active = d[d.race_date.astype(str).str.startswith(str(year))] if not d.empty else d
         approved = active[active.status == 'Approved'] if not active.empty else active
         a,b,c=st.columns(3)
@@ -369,13 +396,18 @@ def run():
         else:
             st.markdown(f"<div style='background:#FFFFFF;border:1px solid #E5D6C5;border-radius:16px;padding:14px 16px;margin:8px 0 16px 0;color:#4A4038'><strong>{t('Add a new race result','Voeg ’n nuwe wedloopuitslag by')}</strong><br>{t('Fill in the form below. Your submission will be saved and sent to the committee for approval.','Vul die vorm hieronder in. Jou inskrywing sal gestoor word en na die komitee vir goedkeuring gestuur word.')}</div>", unsafe_allow_html=True)
             with st.form('new_race'):
-                race=st.text_input(t('Race name','Wedloopnaam'))
+                _field_heading(t('Race name','Wedloopnaam'))
+                race=st.text_input(t('Race name','Wedloopnaam'), label_visibility='collapsed')
                 c1,c2=st.columns(2)
-                when=c1.date_input(t('Race date','Wedloopdatum'), value=date.today(),max_value=date.today())
-                discipline=c2.selectbox(t('Discipline','Dissipline'), ['Road','Trail','Cross-country','Track','Other'])
+                _field_heading(t('Race date','Wedloopdatum'), c1)
+                when=c1.date_input(t('Race date','Wedloopdatum'), value=date.today(),max_value=date.today(), label_visibility='collapsed')
+                _field_heading(t('Discipline','Dissipline'), c2)
+                discipline=c2.selectbox(t('Discipline','Dissipline'), ['Road','Trail','Cross-country','Track','Other'], label_visibility='collapsed')
                 c1,c2=st.columns(2)
-                km=c1.number_input(t('Actual distance (km)','Werklike afstand (km)'), min_value=0.1, max_value=1000., value=10., step=0.1)
-                clock=c2.text_input(t('Finish time HH:MM:SS','Eindtyd UU:MM:SS'),placeholder='01:52:30')
+                _field_heading(t('Actual distance (km)','Werklike afstand (km)'), c1)
+                km=c1.number_input(t('Actual distance (km)','Werklike afstand (km)'), min_value=0.1, max_value=1000., value=10., step=0.1, label_visibility='collapsed')
+                _field_heading(t('Finish time HH:MM:SS','Eindtyd UU:MM:SS'), c2)
+                clock=c2.text_input(t('Finish time HH:MM:SS','Eindtyd UU:MM:SS'),placeholder='01:52:30', label_visibility='collapsed')
                 submitted=st.form_submit_button(t('Submit for approval','Dien in vir goedkeuring'),type='primary')
             if submitted:
                 secs=_parse_time(clock)
@@ -424,10 +456,12 @@ def run():
                 pending['finish_time']=pending.finish_seconds.map(_fmt_time)
                 _render(pending[['athlete','race_name','race_date','distance_km','finish_time']])
                 options = pending.id.tolist()
+                _field_heading(t('Choose pending result','Kies hangende uitslag'))
                 selected=st.selectbox(t('Choose pending result','Kies hangende uitslag'),options,
-                    format_func=lambda rid: f"{pending.loc[pending.id==rid,'athlete'].iloc[0]} · {pending.loc[pending.id==rid,'race_name'].iloc[0]}")
+                    format_func=lambda rid: f"{pending.loc[pending.id==rid,'athlete'].iloc[0]} · {pending.loc[pending.id==rid,'race_name'].iloc[0]}", label_visibility='collapsed')
                 with st.form('review_result'):
-                    decision=st.radio(t('Decision','Besluit'),['Approved','Rejected'],horizontal=True)
+                    _field_heading(t('Decision','Besluit'))
+                    decision=st.radio(t('Decision','Besluit'),['Approved','Rejected'],horizontal=True,label_visibility='collapsed')
                     save=st.form_submit_button(t('Record decision','Stoor besluit'),type='primary')
                 if save:
                     try:
@@ -439,16 +473,21 @@ def run():
         if df.empty: st.info(t('No results yet.','Nog geen uitslae nie.'))
         else:
             a,b,c=st.columns(3)
-            yr=a.selectbox(t('Season','Seisoen'), sorted({int(str(x)[:4]) for x in df.race_date if x}, reverse=True))
+            _field_heading(t('Season','Seisoen'),a)
+            yr=a.selectbox(t('Season','Seisoen'), sorted({int(str(x)[:4]) for x in df.race_date if x}, reverse=True), label_visibility='collapsed')
             groups=sorted(df.group.dropna().unique().tolist())
-            group=b.selectbox(t('Member category','Ledekategorie'), ['All']+groups)
-            types=c.selectbox(t('Discipline','Dissipline'), ['All']+sorted(df.discipline.dropna().unique().tolist()))
+            _field_heading(t('Member category','Ledekategorie'),b)
+            group=b.selectbox(t('Member category','Ledekategorie'), ['All']+groups, label_visibility='collapsed')
+            _field_heading(t('Discipline','Dissipline'),c)
+            types=c.selectbox(t('Discipline','Dissipline'), ['All']+sorted(df.discipline.dropna().unique().tolist()), label_visibility='collapsed')
             q=df[df.race_date.astype(str).str.startswith(str(yr))].copy()
             if group!='All':q=q[q.group==group]
             if types!='All':q=q[q.discipline==types]
-            race=st.selectbox(t('Specific race','Spesifieke wedloop'), ['All']+sorted(q.race_name.dropna().unique().tolist()))
+            _field_heading(t('Specific race','Spesifieke wedloop'))
+            race=st.selectbox(t('Specific race','Spesifieke wedloop'), ['All']+sorted(q.race_name.dropna().unique().tolist()), label_visibility='collapsed')
             if race!='All':q=q[q.race_name==race]
-            status=st.selectbox(t('Review status','Hersieningstatus'),['Approved','All','Pending','Rejected'])
+            _field_heading(t('Review status','Hersieningstatus'))
+            status=st.selectbox(t('Review status','Hersieningstatus'),['Approved','All','Pending','Rejected'], label_visibility='collapsed')
             if status!='All':q=q[q.status==status]
             if q.empty: st.info(t('No matching results.','Geen ooreenstemmende uitslae nie.'))
             else:
@@ -479,7 +518,8 @@ def run():
             calc['group']=calc.member_id.map(lambda v:members.get(str(v),{}).get('member_group','ANDER'))
             calc['athlete']=calc.member_id.map(lambda v:members.get(str(v),{}).get('display_name','Unknown'))
             awards_list=default_awards(int(calc.year.max()))
-            award=st.selectbox(t('Award','Prys'),awards_list, format_func=lambda v:v['name_en'] if lang=='EN' else v['name_af'])
+            _field_heading(t('Award','Prys'))
+            award=st.selectbox(t('Award','Prys'),awards_list, format_func=lambda v:v['name_en'] if lang=='EN' else v['name_af'], label_visibility='collapsed')
             # Explicit preview only; finalized awards and editable definitions require further DB tables/policies.
             try:
                 result=compute_award(calc,award,False,{})
