@@ -12,6 +12,43 @@ from awards_engine import default_awards, compute_award
 
 ORANGE = '#D95116'
 
+# Club race groupings as recorded in the 2026 RESULTATE workbook.
+RACE_CATEGORIES = ('10 km', '21.1 km', '42.2 km', 'Ultra', 'Comrades', 'Buite Sport', 'Other')
+STANDARD_DISTANCES = {'10 km': 10.0, '21.1 km': 21.1, '42.2 km': 42.2}
+CUSTOM_DISTANCE_DEFAULTS = {'Ultra': 56.0, 'Comrades': 86.0, 'Buite Sport': 21.1, 'Other': 5.0}
+
+
+def _default_discipline(race_category):
+    """Suggested discipline, editable by the athlete; independent of race category."""
+    return 'Trail' if race_category == 'Buite Sport' else 'Road'
+
+
+def _derive_race_category(row):
+    """Display fallback for records from before the race-category migration."""
+    if row.get('race_category') in RACE_CATEGORIES:
+        return row['race_category']
+    name = str(row.get('race_name') or '').lower()
+    discipline = row.get('discipline') or ''
+    km = row.get('distance_km')
+    try: km = float(km)
+    except (TypeError, ValueError): km = 0
+    if 'comrades' in name: return 'Comrades'
+    if discipline in ('Trail','Cross-country'): return 'Buite Sport'
+    for category, fixed_km in STANDARD_DISTANCES.items():
+        if abs(km - fixed_km) < 0.001: return category
+    if km > 42.2: return 'Ultra'
+    return 'Other'
+
+
+def _finish_seconds(hours, minutes, seconds):
+    """Only positive finishing times are valid for new result submissions."""
+    if not (isinstance(hours, int) and isinstance(minutes, int) and isinstance(seconds, int)):
+        return None
+    if not (0 <= hours <= 240 and 0 <= minutes < 60 and 0 <= seconds < 60):
+        return None
+    total = hours * 3600 + minutes * 60 + seconds
+    return total if total > 0 else None
+
 
 def _fmt_time(value):
     if isinstance(value, int) and value > 0:
@@ -296,6 +333,30 @@ def run():
     .stApp [data-testid="stAlert"] {opacity:1!important;}
     .stApp [data-testid="stAlert"] :is(p,span,strong) {opacity:1!important;}
 
+    /* Forced accessible light notifications for all Streamlit alert variants.
+       Overrides inherited dark-mode markdown text, including errors below forms. */
+    .stApp [data-testid="stAlert"],
+    .stApp [data-testid="stAlert"] [data-baseweb="notification"],
+    .stApp [data-testid="stAlert"] [role="alert"] {
+        background:#FFF8ED!important;
+        border:2px solid #B74715!important;
+        border-radius:12px!important;
+        color:#29231F!important;
+        opacity:1!important;
+    }
+    .stApp [data-testid="stAlert"] *,
+    .stApp [data-testid="stAlert"] [data-testid="stMarkdownContainer"] *,
+    .stApp [data-testid="stAlert"] [data-baseweb="notification"] * {
+        color:#29231F!important;
+        -webkit-text-fill-color:#29231F!important;
+        opacity:1!important;
+    }
+    .stApp [data-testid="stAlert"] svg {fill:#8F3813!important;stroke:#8F3813!important;}
+    .stApp [data-testid="stFormSubmitButton"] button p,
+    .stApp [data-testid="stFormSubmitButton"] button span {
+        color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+    }
+
     /* Only the orange hero has white text, deliberately. */
     .stApp .pilot-hero {
         background:linear-gradient(110deg,#A83B18,#D95116,#E88620)!important;
@@ -364,8 +425,15 @@ def run():
     st.markdown(f'<div class="pilot-hero"><h2>{t("Your running year" if view == "Member" else "Committee command centre", "Jou hardloopjaar" if view == "Member" else "Komitee-beheersentrum")}</h2><p>{escape(profile["display_name"])} · Bethlehem Marathon Klub</p></div>', unsafe_allow_html=True)
 
     if view == 'Member':
+        if st.session_state.pop('bmk_submission_notice', False):
+            st.success(t('Race saved! It is now awaiting committee review.',
+                         'Wedloop gestoor! Dit wag nou op die komitee se goedkeuring.'))
         try:
-            rows = _fetch_all(lambda: sb.table('race_results').select('id,race_name,race_date,discipline,distance_km,finish_seconds,status,created_at').eq('member_id',str(user.id)).order('race_date',desc=True))
+            try:
+                rows = _fetch_all(lambda: sb.table('race_results').select('id,race_name,race_date,race_category,discipline,distance_km,finish_seconds,status,created_at').eq('member_id',str(user.id)).order('race_date',desc=True))
+            except Exception:
+                # Continue to show existing results if the SQL migration has not yet been applied.
+                rows = _fetch_all(lambda: sb.table('race_results').select('id,race_name,race_date,discipline,distance_km,finish_seconds,status,created_at').eq('member_id',str(user.id)).order('race_date',desc=True))
         except Exception:
             st.error(t('Unable to retrieve your race results.','Kan nie jou wedloopuitslae laai nie.'))
             return
@@ -387,49 +455,122 @@ def run():
         )
         if member_view == t('My results','My uitslae'):
             if not active.empty:
-                display = active[['race_name','race_date','discipline','distance_km','finish_seconds','status']].copy()
+                display = active.copy()
+                display['Race category'] = display.apply(lambda r: _derive_race_category(r.to_dict()), axis=1)
+                display = display[['race_name','race_date','Race category','discipline','distance_km','finish_seconds','status']]
                 display['finish_seconds']=display.finish_seconds.map(_fmt_time)
-                display.columns=['Race','Date','Type','Distance (km)','Finish time','Status']
+                display.columns=['Race','Date', t('Race category','Wedloopkategorie'), 'Discipline','Distance (km)','Finish time','Status']
                 _render(display)
             else:
                 st.info(t('No races for this year yet. Use “Add a race” below to submit your first result.','Nog geen wedlope vir hierdie jaar nie. Gebruik “Voeg wedloop by” hieronder om jou eerste uitslag in te dien.'))
         else:
-            st.markdown(f"<div style='background:#FFFFFF;border:1px solid #E5D6C5;border-radius:16px;padding:14px 16px;margin:8px 0 16px 0;color:#4A4038'><strong>{t('Add a new race result','Voeg ’n nuwe wedloopuitslag by')}</strong><br>{t('Fill in the form below. Your submission will be saved and sent to the committee for approval.','Vul die vorm hieronder in. Jou inskrywing sal gestoor word en na die komitee vir goedkeuring gestuur word.')}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='background:#FFFFFF;border:1px solid #E5D6C5;border-radius:16px;padding:14px 16px;margin:8px 0 16px 0;color:#4A4038'><strong>{t('Add a new race result','Voeg ’n nuwe wedloopuitslag by')}</strong><br>{t('First choose the race distance category, then enter the race details.','Kies eers die wedloopafstandkategorie en vul dan die wedloopbesonderhede in.')}</div>", unsafe_allow_html=True)
+
+            # Keep this OUTSIDE the form so selecting a category instantly updates
+            # fixed distances and the relevant fields without submitting the form.
+            _field_heading(t('1. Race category','1. Wedloopkategorie'))
+            category = st.selectbox(
+                t('Race category','Wedloopkategorie'), RACE_CATEGORIES,
+                format_func=lambda v: ({'21.1 km':'21,1 km', '42.2 km':'42,2 km',
+                                       'Buite Sport':'Buite Sport / Outdoor',
+                                       'Other':'Other distance / Ander afstand'} if lang == 'AFR' else
+                                      {'Buite Sport':'Buite Sport / Outdoor',
+                                       'Other':'Other distance'}).get(v, v),
+                label_visibility='collapsed', key='bmk_race_category'
+            )
+            st.caption(t(
+                'Categories match the 2026 results workbook. Member groups (MANS, VROUE, ANDER) are separate.',
+                'Kategorieë stem ooreen met die 2026-uitslae. Ledegroepe (MANS, VROUE, ANDER) is afsonderlik.'
+            ))
             with st.form('new_race'):
-                _field_heading(t('Race name','Wedloopnaam'))
-                race=st.text_input(t('Race name','Wedloopnaam'), label_visibility='collapsed')
-                c1,c2=st.columns(2)
-                _field_heading(t('Race date','Wedloopdatum'), c1)
-                when=c1.date_input(t('Race date','Wedloopdatum'), value=date.today(),max_value=date.today(), label_visibility='collapsed')
-                _field_heading(t('Discipline','Dissipline'), c2)
-                discipline=c2.selectbox(t('Discipline','Dissipline'), ['Road','Trail','Cross-country','Track','Other'], label_visibility='collapsed')
-                c1,c2=st.columns(2)
-                _field_heading(t('Actual distance (km)','Werklike afstand (km)'), c1)
-                km=c1.number_input(t('Actual distance (km)','Werklike afstand (km)'), min_value=0.1, max_value=1000., value=10., step=0.1, label_visibility='collapsed')
-                _field_heading(t('Finish time HH:MM:SS','Eindtyd UU:MM:SS'), c2)
-                clock=c2.text_input(t('Finish time HH:MM:SS','Eindtyd UU:MM:SS'),placeholder='01:52:30', label_visibility='collapsed')
-                submitted=st.form_submit_button(t('Submit for approval','Dien in vir goedkeuring'),type='primary')
+                _field_heading(t('2. Race name','2. Wedloopnaam'))
+                race = st.text_input(t('Race name','Wedloopnaam'), label_visibility='collapsed',
+                                     placeholder=t('e.g. Mimosa Marathon','bv. Mimosa Marathon'))
+                _field_heading(t('3. Race date','3. Wedloopdatum'))
+                when = st.date_input(t('Race date','Wedloopdatum'), value=date.today(),
+                                     max_value=date.today(), label_visibility='collapsed')
+                if category in STANDARD_DISTANCES:
+                    km = STANDARD_DISTANCES[category]
+                    st.markdown(
+                        f"<div style='background:#FDF1E4;color:#2B241F;padding:12px 14px;"
+                        f"border:1px solid #D8B89A;border-radius:10px;margin:9px 0'>"
+                        f"<strong style='color:#2B241F'>{t('Distance selected','Gekose afstand')}: "
+                        f"{km:g} km</strong> — {t('automatically filled','outomaties ingevul')}</div>",
+                        unsafe_allow_html=True
+                    )
+                else:
+                    _field_heading(t('4. Actual distance (km)','4. Werklike afstand (km)'))
+                    km = st.number_input(
+                        t('Actual distance (km)','Werklike afstand (km)'),
+                        min_value=0.1, max_value=1000.0,
+                        value=CUSTOM_DISTANCE_DEFAULTS.get(category, 10.0),
+                        step=0.1, label_visibility='collapsed',
+                        help=t('Use the distance listed for this specific race edition.',
+                               'Gebruik die afstand wat vir hierdie wedloopjaar aangedui word.')
+                    )
+                    if category == 'Comrades':
+                        st.caption(t('The 2026 sheet uses 86 km for Comrades. Confirm the official distance for the race you ran.',
+                                     'Die 2026-blad gebruik 86 km vir Comrades. Bevestig die amptelike afstand vir jou wedloop.'))
+                _field_heading(t('Race discipline','Wedloopdissipline'))
+                disciplines = ['Road','Trail','Cross-country','Track','Other']
+                discipline = st.selectbox(
+                    t('Race discipline','Wedloopdissipline'), disciplines,
+                    index=disciplines.index(_default_discipline(category)),
+                    label_visibility='collapsed',
+                    help=t('For example, choose Trail for a mountain run.',
+                           'Kies byvoorbeeld Trail vir ’n bergwedloop.')
+                )
+                _field_heading(t('5. Finishing time','5. Eindtyd'))
+                st.caption(t('Enter your actual finishing time using separate hours, minutes and seconds.',
+                             'Vul jou werklike eindtyd in met aparte ure, minute en sekondes.'))
+                h_col, m_col, s_col = st.columns(3)
+                with h_col:
+                    _field_heading(t('Hours','Ure'))
+                    hours = st.number_input(t('Hours','Ure'), min_value=0, max_value=240,
+                                            value=0, step=1, label_visibility='collapsed')
+                with m_col:
+                    _field_heading(t('Minutes','Minute'))
+                    minutes = st.number_input(t('Minutes','Minute'), min_value=0, max_value=59,
+                                              value=0, step=1, label_visibility='collapsed')
+                with s_col:
+                    _field_heading(t('Seconds','Sekondes'))
+                    seconds = st.number_input(t('Seconds','Sekondes'), min_value=0, max_value=59,
+                                              value=0, step=1, label_visibility='collapsed')
+                submitted = st.form_submit_button(t('Submit race for approval','Dien wedloop in vir goedkeuring'), type='primary')
             if submitted:
-                secs=_parse_time(clock)
-                if not race.strip() or secs is None:
-                    st.error(t('Please enter a race name and valid positive finish time.','Vul asseblief ’n wedloopnaam en geldige eindtyd in.'))
-                elif len(race.strip())>200:
-                    st.error(t('Race name is too long.','Wedloopnaam is te lank.'))
+                secs = _finish_seconds(hours, minutes, seconds)
+                if not race.strip():
+                    st.error(t('Please enter the race name.', 'Vul asseblief die wedloopnaam in.'))
+                elif len(race.strip()) > 200:
+                    st.error(t('Race name is too long. Use fewer than 200 characters.',
+                               'Die wedloopnaam is te lank. Gebruik minder as 200 karakters.'))
+                elif secs is None:
+                    st.error(t('Please enter your finish time. It cannot be 0 hours, 0 minutes and 0 seconds.',
+                               'Vul asseblief jou eindtyd in. Dit kan nie 0 ure, 0 minute en 0 sekondes wees nie.'))
+                elif category == 'Ultra' and km <= 42.2:
+                    st.error(t('An Ultra must exceed 42.2 km. Check the race category or distance.',
+                               '’n Ultra moet langer as 42,2 km wees. Gaan die kategorie of afstand na.'))
                 else:
                     try:
-                        sb.table('race_results').insert({'member_id':str(user.id),'race_name':race.strip(),
-                            'race_date':when.isoformat(),'discipline':discipline,'distance_km':km,
-                            'finish_seconds':secs}).execute()
-                        st.success(t('Saved! Awaiting committee review.','Gestoor! Wag op komiteegoedkeuring.'))
+                        sb.table('race_results').insert({
+                            'member_id':str(user.id), 'race_name':race.strip(),
+                            'race_date':when.isoformat(), 'race_category':category,
+                            'discipline':discipline, 'distance_km':km,
+                            'finish_seconds':secs
+                        }).execute()
+                        st.session_state['bmk_submission_notice'] = True
                         st.rerun()
                     except Exception:
-                        st.error(t('Could not save the submission. Please contact the administrator.',
-                                   'Kon nie die inskrywing stoor nie. Kontak die administrateur.'))
+                        st.error(t('Could not save. Ask your club administrator to confirm the race-category database update has been run.',
+                                   'Kon nie stoor nie. Vra die klubadministrateur om te bevestig dat die wedloopkategorie-databasisopdatering uitgevoer is.'))
         return
 
     # All queries below are also protected by RLS; no trust in sidebar role alone.
     try:
-        all_rows = _fetch_all(lambda: sb.table('race_results').select('id,member_id,race_name,race_date,discipline,distance_km,finish_seconds,status,created_at').order('race_date',desc=True))
+        try:
+            all_rows = _fetch_all(lambda: sb.table('race_results').select('id,member_id,race_name,race_date,race_category,discipline,distance_km,finish_seconds,status,created_at').order('race_date',desc=True))
+        except Exception:
+            all_rows = _fetch_all(lambda: sb.table('race_results').select('id,member_id,race_name,race_date,discipline,distance_km,finish_seconds,status,created_at').order('race_date',desc=True))
         all_profiles = _fetch_all(lambda: sb.table('profiles').select('id,display_name,member_group,age_category,active'))
     except Exception:
         st.error(t('Unable to load the committee data.','Kan nie komiteedata laai nie.'))
@@ -437,6 +578,7 @@ def run():
     df=pd.DataFrame(all_rows)
     profiles_by_id={str(p['id']):p for p in all_profiles}
     if not df.empty:
+        df['race_category'] = df.apply(lambda r: _derive_race_category(r.to_dict()), axis=1)
         df['athlete']=df.member_id.map(lambda v:profiles_by_id.get(str(v),{}).get('display_name','Unknown'))
         df['group']=df.member_id.map(lambda v:profiles_by_id.get(str(v),{}).get('member_group','Unknown'))
     overview,review,analysis,awards=st.tabs([t('Overview','Oorsig'),t('Review results','Hersien uitslae'),t('Analysis','Ontleding'),t('Awards preview','Prysvoorskou')])
@@ -483,6 +625,9 @@ def run():
             q=df[df.race_date.astype(str).str.startswith(str(yr))].copy()
             if group!='All':q=q[q.group==group]
             if types!='All':q=q[q.discipline==types]
+            _field_heading(t('Race category','Wedloopkategorie'))
+            rc=st.selectbox(t('Race category','Wedloopkategorie'), ['All']+list(RACE_CATEGORIES), label_visibility='collapsed')
+            if rc!='All':q=q[q.race_category==rc]
             _field_heading(t('Specific race','Spesifieke wedloop'))
             race=st.selectbox(t('Specific race','Spesifieke wedloop'), ['All']+sorted(q.race_name.dropna().unique().tolist()), label_visibility='collapsed')
             if race!='All':q=q[q.race_name==race]
@@ -492,7 +637,7 @@ def run():
             if q.empty: st.info(t('No matching results.','Geen ooreenstemmende uitslae nie.'))
             else:
                 q['Finish time']=q.finish_seconds.map(_fmt_time)
-                _render(q[['athlete','group','race_name','race_date','discipline','distance_km','Finish time','status']])
+                _render(q[['athlete','group','race_category','race_name','race_date','discipline','distance_km','Finish time','status']])
                 st.download_button(t('Download filtered CSV','Laai gefiltreerde CSV af'),q.to_csv(index=False).encode('utf-8-sig'),'bmk_secure_results.csv','text/csv')
     with awards:
         if profile['role'] not in ('awards_admin','super_admin'):
