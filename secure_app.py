@@ -5,6 +5,8 @@ member's short-lived access token and are subject to PostgreSQL RLS.
 """
 from datetime import date
 from html import escape
+from pathlib import Path
+import base64
 import pandas as pd
 import streamlit as st
 from supabase import create_client
@@ -374,7 +376,21 @@ def run():
     }
     .stApp .pilot-hero h2 {margin:0!important;}
     </style>''', unsafe_allow_html=True)
-    st.sidebar.image('logo.png', width=180)
+    # Keep the original 1200 px logo intact. st.image(width=180) can rasterise
+    # the file down to 180 image pixels, which looks soft on Retina screens.
+    # An HTML <img> uses the full-resolution image; only CSS controls its size.
+    try:
+        logo_bytes = (Path(__file__).resolve().parent / 'logo.png').read_bytes()
+        logo_data = base64.b64encode(logo_bytes).decode('ascii')
+        st.sidebar.markdown(
+            '<img src="data:image/png;base64,' + logo_data + '" '
+            'alt="Skillie Athlete Dashboard" '
+            'style="display:block;width:220px;max-width:100%;height:auto;'
+            'object-fit:contain;image-rendering:auto;margin:0 0 16px 0;"/>',
+            unsafe_allow_html=True,
+        )
+    except OSError:
+        st.sidebar.markdown('**Skillie · Athlete Dashboard**')
     _field_heading('Language / Taal', st.sidebar)
     lang = st.sidebar.radio('Language / Taal', ['EN', 'AFR'], horizontal=True, label_visibility='collapsed')
     def t(en, af): return af if lang == 'AFR' else en
