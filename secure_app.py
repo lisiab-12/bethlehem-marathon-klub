@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 from supabase import create_client
 from awards_engine import default_awards, compute_award
+from club_awards_ui import render_club_awards
 
 ORANGE = '#D95116'
 
@@ -429,23 +430,22 @@ def run():
             st.success(t('Race saved! It is now awaiting committee review.',
                          'Wedloop gestoor! Dit wag nou op die komitee se goedkeuring.'))
         try:
-            try:
-                rows = _fetch_all(lambda: sb.table('race_results').select('id,race_name,race_date,race_category,discipline,distance_km,finish_seconds,status,created_at').eq('member_id',str(user.id)).order('race_date',desc=True))
-            except Exception:
-                # Continue to show existing results if the SQL migration has not yet been applied.
-                rows = _fetch_all(lambda: sb.table('race_results').select('id,race_name,race_date,discipline,distance_km,finish_seconds,status,created_at').eq('member_id',str(user.id)).order('race_date',desc=True))
+            rows = _fetch_all(lambda: sb.table('race_results').select('id,race_name,race_date,season_year,race_category,discipline,distance_km,finish_seconds,status,created_at').eq('member_id',str(user.id)).order('season_year',desc=True))
         except Exception:
-            st.error(t('Unable to retrieve your race results.','Kan nie jou wedloopuitslae laai nie.'))
+            st.error(t('Unable to retrieve your race results. Check the awards/history migration in Supabase.','Kan nie jou wedloopuitslae laai nie.'))
             return
         d = pd.DataFrame(rows)
         _field_heading(t('Season','Seisoen'))
-        year = st.selectbox(t('Season','Seisoen'), sorted(set([date.today().year] + ([int(str(x)[:4]) for x in d.race_date if x] if not d.empty else [])), reverse=True), label_visibility='collapsed')
-        active = d[d.race_date.astype(str).str.startswith(str(year))] if not d.empty else d
+        available_years = [date.today().year]
+        if not d.empty:
+            available_years += [int(v) for v in d.season_year.dropna()]
+        year = st.selectbox(t('Season','Seisoen'), sorted(set(available_years), reverse=True), label_visibility='collapsed')
+        active = d[d.season_year.astype(str).str.startswith(str(year))] if not d.empty else d
         approved = active[active.status == 'Approved'] if not active.empty else active
         a,b,c=st.columns(3)
         a.metric(t('Approved kilometres','Goedgekeurde kilometers'), f'{approved.distance_km.sum():,.1f} km' if not approved.empty else '0 km')
         b.metric(t('Approved races','Goedgekeurde wedlope'),len(approved))
-        c.metric(t('Awaiting review','Wag op hersiening'),int((active.status=='Pending').sum()) if not active.empty else 0)
+        c.metric(t('Awaiting review','Wag op hersiening'),int(active.status.isin(['Pending','Imported']).sum()) if not active.empty else 0)
         st.markdown(f"<div style='background:#FFF8EF;border:1px solid #E5D6C5;border-radius:16px;padding:14px 16px;margin:12px 0 18px 0;color:#4A4038'><strong>{t('Choose what you want to do','Kies wat jy wil doen')}</strong><br>{t('Use the buttons below to view your saved results or add a new race.','Gebruik die knoppies hieronder om jou uitslae te sien of ’n nuwe wedloop by te voeg.')}</div>", unsafe_allow_html=True)
         member_view = st.radio(
             t('Member action','Lede-aksie'),
@@ -458,6 +458,7 @@ def run():
                 display = active.copy()
                 display['Race category'] = display.apply(lambda r: _derive_race_category(r.to_dict()), axis=1)
                 display = display[['race_name','race_date','Race category','discipline','distance_km','finish_seconds','status']]
+                display['race_date']=display.race_date.fillna(t('Not recorded','Nie aangeteken nie'))
                 display['finish_seconds']=display.finish_seconds.map(_fmt_time)
                 display.columns=['Race','Date', t('Race category','Wedloopkategorie'), 'Discipline','Distance (km)','Finish time','Status']
                 _render(display)
@@ -554,7 +555,7 @@ def run():
                     try:
                         sb.table('race_results').insert({
                             'member_id':str(user.id), 'race_name':race.strip(),
-                            'race_date':when.isoformat(), 'race_category':category,
+                            'race_date':when.isoformat(), 'season_year':when.year, 'race_category':category,
                             'discipline':discipline, 'distance_km':km,
                             'finish_seconds':secs
                         }).execute()
@@ -567,13 +568,10 @@ def run():
 
     # All queries below are also protected by RLS; no trust in sidebar role alone.
     try:
-        try:
-            all_rows = _fetch_all(lambda: sb.table('race_results').select('id,member_id,race_name,race_date,race_category,discipline,distance_km,finish_seconds,status,created_at').order('race_date',desc=True))
-        except Exception:
-            all_rows = _fetch_all(lambda: sb.table('race_results').select('id,member_id,race_name,race_date,discipline,distance_km,finish_seconds,status,created_at').order('race_date',desc=True))
+        all_rows = _fetch_all(lambda: sb.table('race_results').select('id,member_id,race_name,race_date,season_year,race_category,discipline,distance_km,finish_seconds,status,created_at').order('season_year',desc=True))
         all_profiles = _fetch_all(lambda: sb.table('profiles').select('id,display_name,member_group,age_category,active'))
     except Exception:
-        st.error(t('Unable to load the committee data.','Kan nie komiteedata laai nie.'))
+        st.error(t('Unable to load committee data. Check the awards/history migration in Supabase.','Kan nie komiteedata laai nie.'))
         return
     df=pd.DataFrame(all_rows)
     profiles_by_id={str(p['id']):p for p in all_profiles}
@@ -586,17 +584,17 @@ def run():
         x,y,z=st.columns(3)
         x.metric(t('Active athletes','Aktiewe atlete'), sum(bool(p['active']) for p in all_profiles))
         y.metric(t('Race entries','Wedloopinskrywings'),len(df))
-        z.metric(t('Awaiting review','Wag op hersiening'),int(df.status.eq('Pending').sum()) if not df.empty else 0)
+        z.metric(t('Awaiting review','Wag op hersiening'),int(df.status.isin(['Pending','Imported']).sum()) if not df.empty else 0)
         st.caption(t('Totals are from the permanent database. Only approved results count towards official metrics.',
                      'Totale kom uit die permanente databasis. Slegs goedgekeurde uitslae tel vir amptelike maatstawwe.'))
     with review:
         if df.empty: st.info(t('No submissions yet.','Nog geen inskrywings nie.'))
         else:
-            pending=df[df.status=='Pending'].copy()
+            pending=df[df.status.isin(['Pending','Imported'])].copy()
             if pending.empty: st.success(t('No pending submissions.','Geen hangende inskrywings nie.'))
             else:
                 pending['finish_time']=pending.finish_seconds.map(_fmt_time)
-                _render(pending[['athlete','race_name','race_date','distance_km','finish_time']])
+                _render(pending[['athlete','race_name','season_year','race_date','distance_km','finish_time','status']].fillna('Not recorded'))
                 options = pending.id.tolist()
                 _field_heading(t('Choose pending result','Kies hangende uitslag'))
                 selected=st.selectbox(t('Choose pending result','Kies hangende uitslag'),options,
@@ -607,7 +605,7 @@ def run():
                     save=st.form_submit_button(t('Record decision','Stoor besluit'),type='primary')
                 if save:
                     try:
-                        sb.table('race_results').update({'status':decision,'reviewed_by':str(user.id),'reviewed_at':date.today().isoformat()}).eq('id',selected).eq('status','Pending').execute()
+                        sb.table('race_results').update({'status':decision,'reviewed_by':str(user.id),'reviewed_at':date.today().isoformat()}).eq('id',selected).in_('status',['Pending','Imported']).execute()
                         st.success(t('Decision saved.','Besluit gestoor.'));st.rerun()
                     except Exception:
                         st.error(t('Could not save decision.','Kon nie besluit stoor nie.'))
@@ -616,13 +614,13 @@ def run():
         else:
             a,b,c=st.columns(3)
             _field_heading(t('Season','Seisoen'),a)
-            yr=a.selectbox(t('Season','Seisoen'), sorted({int(str(x)[:4]) for x in df.race_date if x}, reverse=True), label_visibility='collapsed')
+            yr=a.selectbox(t('Season','Seisoen'), sorted({int(x) for x in df.season_year if pd.notna(x)}, reverse=True), label_visibility='collapsed')
             groups=sorted(df.group.dropna().unique().tolist())
             _field_heading(t('Member category','Ledekategorie'),b)
             group=b.selectbox(t('Member category','Ledekategorie'), ['All']+groups, label_visibility='collapsed')
             _field_heading(t('Discipline','Dissipline'),c)
             types=c.selectbox(t('Discipline','Dissipline'), ['All']+sorted(df.discipline.dropna().unique().tolist()), label_visibility='collapsed')
-            q=df[df.race_date.astype(str).str.startswith(str(yr))].copy()
+            q=df[df.season_year.astype(str).str.startswith(str(yr))].copy()
             if group!='All':q=q[q.group==group]
             if types!='All':q=q[q.discipline==types]
             _field_heading(t('Race category','Wedloopkategorie'))
@@ -632,49 +630,17 @@ def run():
             race=st.selectbox(t('Specific race','Spesifieke wedloop'), ['All']+sorted(q.race_name.dropna().unique().tolist()), label_visibility='collapsed')
             if race!='All':q=q[q.race_name==race]
             _field_heading(t('Review status','Hersieningstatus'))
-            status=st.selectbox(t('Review status','Hersieningstatus'),['Approved','All','Pending','Rejected'], label_visibility='collapsed')
+            status=st.selectbox(t('Review status','Hersieningstatus'),['Approved','All','Pending','Imported','Rejected'], label_visibility='collapsed')
             if status!='All':q=q[q.status==status]
             if q.empty: st.info(t('No matching results.','Geen ooreenstemmende uitslae nie.'))
             else:
                 q['Finish time']=q.finish_seconds.map(_fmt_time)
-                _render(q[['athlete','group','race_category','race_name','race_date','discipline','distance_km','Finish time','status']])
+                _render(q[['athlete','group','race_category','race_name','race_date','discipline','distance_km','Finish time','status']].fillna(t('Not recorded','Nie aangeteken nie')))
                 st.download_button(t('Download filtered CSV','Laai gefiltreerde CSV af'),q.to_csv(index=False).encode('utf-8-sig'),'bmk_secure_results.csv','text/csv')
     with awards:
-        if profile['role'] not in ('awards_admin','super_admin'):
-            st.info(t('Awards calculations are restricted to awards administrators.','Prysberekeninge is slegs vir prysadministrateurs.'))
-        elif df.empty or not (df.status=='Approved').any():
-            st.info(t('No approved results yet. Add test accounts and approve a few races to preview awards.',
-                      'Nog geen goedgekeurde uitslae nie. Voeg toetsrekeninge en uitslae by om pryse te voorskou.'))
+        if profile['role'] not in ('awards_admin', 'super_admin'):
+            st.info(t('Club award rankings are restricted to awards administrators.',
+                      'Klubprysranglyste is slegs vir prysadministrateurs.'))
         else:
-            st.warning(t('Provisional preview only. Official club award rules and historical imports are not yet finalised.',
-                         'Slegs voorlopige voorskou. Amptelike klubprysreëls en historiese invoere is nog nie afgehandel nie.'))
-            members={str(p['id']):p for p in all_profiles}
-            calc=df.copy()
-            calc['member']=calc.member_id
-            calc['race']=calc.race_name
-            calc['date']=calc.race_date
-            calc['year']=calc.race_date.astype(str).str.slice(0,4).astype(int)
-            calc['category']=calc.discipline.map(lambda v:'trail' if v=='Trail' else 'Road')
-            calc['distance']=calc.distance_km
-            calc['time']=calc.finish_seconds.map(_fmt_time)
-            calc['seconds']=calc.finish_seconds
-            calc['age_category']=calc.member_id.map(lambda v:members.get(str(v),{}).get('age_category') or 'Not recorded')
-            calc=calc[calc.status=='Approved']
-            calc['group']=calc.member_id.map(lambda v:members.get(str(v),{}).get('member_group','ANDER'))
-            calc['athlete']=calc.member_id.map(lambda v:members.get(str(v),{}).get('display_name','Unknown'))
-            awards_list=default_awards(int(calc.year.max()))
-            _field_heading(t('Award','Prys'))
-            award=st.selectbox(t('Award','Prys'),awards_list, format_func=lambda v:v['name_en'] if lang=='EN' else v['name_af'], label_visibility='collapsed')
-            # Explicit preview only; finalized awards and editable definitions require further DB tables/policies.
-            try:
-                result=compute_award(calc,award,False,{})
-                # compute_award returns a dict. Show key output without modifying it.
-                if isinstance(result,dict):
-                    rankings=result.get('rankings')
-                    if isinstance(rankings,pd.DataFrame): _render(rankings)
-                    elif rankings is not None: _render(pd.DataFrame(rankings))
-                    else: st.info(t('Not enough qualifying results.','Nie genoeg kwalifiserende uitslae nie.'))
-                else:
-                    st.info(t('Award calculation is not available yet.','Prysberekening is nog nie beskikbaar nie.'))
-            except Exception:
-                st.info(t('This award is not yet calculable from current verified results.','Hierdie prys kan nog nie met huidige geverifieerde uitslae bereken word nie.'))
+            render_club_awards(sb, df, all_profiles, str(user.id), lang,
+                               date.today().year)
