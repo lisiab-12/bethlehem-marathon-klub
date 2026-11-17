@@ -112,7 +112,8 @@ def render_club_awards(sb, df, profiles, user_id, lang, season_default):
         st.caption(t('Never use the first two club finishers as a substitute for the official Gold designation.',
                      'Moenie die eerste twee klublede verwar met amptelike Goud-toekenning nie.'))
         if comrades:
-            options=[r for r in comrades if r['result_id']]
+            st.caption(t('Gold verification for imported historical results is not yet supported by this screen. Those results can still appear in provisional time-band rankings.', 'Goudbevestiging vir ingevoerde historiese uitslae word nog nie deur hierdie skerm ondersteun nie. Hulle kan wel in voorlopige tydranglyste verskyn.'))
+            options=[r for r in comrades if r['result_id'] and not str(r['result_id']).startswith('historical:')]
             if options:
                 with st.form('bmk_gold_form'):
                     visible_label(t('Comrades finish','Comrades-voltooiing'))

@@ -10,6 +10,7 @@ import streamlit as st
 from supabase import create_client
 from awards_engine import default_awards, compute_award
 from club_awards_ui import render_club_awards
+from season_manager_ui import render_season_manager
 
 ORANGE = '#D95116'
 
@@ -434,18 +435,38 @@ def run():
         except Exception:
             st.error(t('Unable to retrieve your race results. Check the awards/history migration in Supabase.','Kan nie jou wedloopuitslae laai nie.'))
             return
+        # Verified historical records are accessible only to the athlete whose
+        # login has been explicitly linked by the committee. RLS also enforces this.
+        historic_rows = []
+        try:
+            my_athletes = sb.table('bmk_athletes').select('id').eq('auth_user_id',str(user.id)).execute().data or []
+            if my_athletes:
+                historic_rows = _fetch_all(lambda: sb.table('bmk_historical_results')
+                    .select('id,athlete_id,race_name,race_date,season_year,race_category,distance_km,finish_seconds,status')
+                    .eq('athlete_id',my_athletes[0]['id']).order('season_year',desc=True))
+        except Exception:
+            st.warning(t('Your online submissions are available, but historical results could not be loaded.',
+                         'Jou aanlyninskrywings is beskikbaar, maar historiese uitslae kon nie gelaai word nie.'))
         d = pd.DataFrame(rows)
+        hist = pd.DataFrame(historic_rows)
         _field_heading(t('Season','Seisoen'))
         available_years = [date.today().year]
         if not d.empty:
             available_years += [int(v) for v in d.season_year.dropna()]
+        if not hist.empty:
+            available_years += [int(v) for v in hist.season_year.dropna()]
         year = st.selectbox(t('Season','Seisoen'), sorted(set(available_years), reverse=True), label_visibility='collapsed')
         active = d[d.season_year.astype(str).str.startswith(str(year))] if not d.empty else d
         approved = active[active.status == 'Approved'] if not active.empty else active
+        selected_history = hist[hist.season_year == year] if not hist.empty else hist
+        approved_history = selected_history[selected_history.status == 'Approved'] if not selected_history.empty else selected_history
+        approved_km = (float(approved.distance_km.sum()) if not approved.empty else 0.0) + (float(approved_history.distance_km.sum()) if not approved_history.empty else 0.0)
+        approved_races = len(approved) + len(approved_history)
+        waiting = (int(active.status.isin(['Pending','Imported']).sum()) if not active.empty else 0) + (int(selected_history.status.eq('Imported').sum()) if not selected_history.empty else 0)
         a,b,c=st.columns(3)
-        a.metric(t('Approved kilometres','Goedgekeurde kilometers'), f'{approved.distance_km.sum():,.1f} km' if not approved.empty else '0 km')
-        b.metric(t('Approved races','Goedgekeurde wedlope'),len(approved))
-        c.metric(t('Awaiting review','Wag op hersiening'),int(active.status.isin(['Pending','Imported']).sum()) if not active.empty else 0)
+        a.metric(t('Approved kilometres','Goedgekeurde kilometers'), f'{approved_km:,.1f} km')
+        b.metric(t('Approved races','Goedgekeurde wedlope'),approved_races)
+        c.metric(t('Awaiting review','Wag op hersiening'),waiting)
         st.markdown(f"<div style='background:#FFF8EF;border:1px solid #E5D6C5;border-radius:16px;padding:14px 16px;margin:12px 0 18px 0;color:#4A4038'><strong>{t('Choose what you want to do','Kies wat jy wil doen')}</strong><br>{t('Use the buttons below to view your saved results or add a new race.','Gebruik die knoppies hieronder om jou uitslae te sien of ’n nuwe wedloop by te voeg.')}</div>", unsafe_allow_html=True)
         member_view = st.radio(
             t('Member action','Lede-aksie'),
@@ -463,7 +484,16 @@ def run():
                 display.columns=['Race','Date', t('Race category','Wedloopkategorie'), 'Discipline','Distance (km)','Finish time','Status']
                 _render(display)
             else:
-                st.info(t('No races for this year yet. Use “Add a race” below to submit your first result.','Nog geen wedlope vir hierdie jaar nie. Gebruik “Voeg wedloop by” hieronder om jou eerste uitslag in te dien.'))
+                st.info(t('No new online race submissions for this year.','Geen nuwe aanlynwedlope vir hierdie jaar nie.'))
+            if not selected_history.empty:
+                st.markdown('#### ' + t('My historical results','My historiese uitslae'))
+                st.caption(t('The committee has linked these 2026 historical records to your verified athlete identity. Imported means not yet approved.',
+                             'Die komitee het historiese rekords aan jou bevestigde identiteit gekoppel. Ingevoer beteken nog nie goedgekeur nie.'))
+                hd = selected_history[['race_name','race_date','race_category','distance_km','finish_seconds','status']].copy()
+                hd['race_date']=hd.race_date.fillna(t('Not recorded','Nie aangeteken nie'))
+                hd['finish_seconds']=hd.finish_seconds.map(_fmt_time)
+                hd.columns=[t('Race','Wedloop'),t('Date','Datum'),t('Category','Kategorie'),t('Distance (km)','Afstand (km)'),t('Time','Tyd'),t('Status','Status')]
+                _render(hd)
         else:
             st.markdown(f"<div style='background:#FFFFFF;border:1px solid #E5D6C5;border-radius:16px;padding:14px 16px;margin:8px 0 16px 0;color:#4A4038'><strong>{t('Add a new race result','Voeg ’n nuwe wedloopuitslag by')}</strong><br>{t('First choose the race distance category, then enter the race details.','Kies eers die wedloopafstandkategorie en vul dan die wedloopbesonderhede in.')}</div>", unsafe_allow_html=True)
 
@@ -568,25 +598,56 @@ def run():
 
     # All queries below are also protected by RLS; no trust in sidebar role alone.
     try:
-        all_rows = _fetch_all(lambda: sb.table('race_results').select('id,member_id,race_name,race_date,season_year,race_category,discipline,distance_km,finish_seconds,status,created_at').order('season_year',desc=True))
+        all_rows = _fetch_all(lambda: sb.table('race_results').select('id,member_id,race_name,race_date,season_year,race_category,discipline,distance_km,finish_seconds,status,created_at,import_source_ref').order('season_year',desc=True))
         all_profiles = _fetch_all(lambda: sb.table('profiles').select('id,display_name,member_group,age_category,active'))
+        all_athletes = _fetch_all(lambda: sb.table('bmk_athletes').select('id,display_name,identity_status,auth_user_id'))
+        all_memberships = _fetch_all(lambda: sb.table('bmk_season_memberships').select('season_year,athlete_id,member_group,membership_status'))
+        all_history = _fetch_all(lambda: sb.table('bmk_historical_results').select('id,source_ref,athlete_id,season_year,race_name,race_date,race_category,distance_km,finish_seconds,status,created_at'))
     except Exception:
         st.error(t('Unable to load committee data. Check the awards/history migration in Supabase.','Kan nie komiteedata laai nie.'))
         return
     df=pd.DataFrame(all_rows)
     profiles_by_id={str(p['id']):p for p in all_profiles}
+    athletes_by_id={str(a['id']):a for a in all_athletes}
+    athlete_by_login={str(a['auth_user_id']):a for a in all_athletes if a.get('auth_user_id')}
+    memberships_by_year={(str(m['athlete_id']),int(m['season_year'])):m for m in all_memberships}
     if not df.empty:
         df['race_category'] = df.apply(lambda r: _derive_race_category(r.to_dict()), axis=1)
         df['athlete']=df.member_id.map(lambda v:profiles_by_id.get(str(v),{}).get('display_name','Unknown'))
-        df['group']=df.member_id.map(lambda v:profiles_by_id.get(str(v),{}).get('member_group','Unknown'))
-    overview,review,analysis,awards=st.tabs([t('Overview','Oorsig'),t('Review results','Hersien uitslae'),t('Analysis','Ontleding'),t('Awards preview','Prysvoorskou')])
+        df['group']=df.apply(lambda r:memberships_by_year.get((str(athlete_by_login.get(str(r['member_id']),{}).get('id')),int(r['season_year'])),{}).get('member_group',profiles_by_id.get(str(r['member_id']),{}).get('member_group','ANDER')),axis=1)
+    # Combine only for analysis and awards; the current-review form must never
+    # try to update a legacy record in the wrong underlying table.
+    existing_source_refs={str(r['import_source_ref']) for r in all_rows if r.get('import_source_ref')}
+    historic_display=[]
+    for r in all_history:
+        if r['source_ref'] in existing_source_refs:
+            continue  # avoid double-counting if an earlier promotion already ran
+        athlete=athletes_by_id.get(str(r['athlete_id']),{})
+        member_identity=athlete.get('auth_user_id') or ('historical:'+str(r['athlete_id']))
+        group=memberships_by_year.get((str(r['athlete_id']),int(r['season_year'])),{}).get('member_group','ANDER')
+        historic_display.append({
+            'id':'historical:'+str(r['id']), 'member_id':member_identity,
+            'race_name':r.get('race_name'),'race_date':r.get('race_date'),
+            'season_year':r['season_year'],'race_category':r['race_category'],
+            'discipline':'Trail' if r['race_category']=='Buite Sport' else 'Road',
+            'distance_km':r.get('distance_km'),'finish_seconds':r.get('finish_seconds'),
+            'status':r['status'],'created_at':r['created_at'],
+            'athlete':athlete.get('display_name') or 'Not recorded', 'group':group,
+            'source_kind':'historical',
+        })
+    combined=pd.concat([df,pd.DataFrame(historic_display)],ignore_index=True) if historic_display else df.copy()
+    if not combined.empty and 'source_kind' not in combined.columns:
+        combined['source_kind']='online'
+    elif not combined.empty:
+        combined['source_kind']=combined['source_kind'].fillna('online')
+    overview,review,analysis,awards,seasons_tab=st.tabs([t('Overview','Oorsig'),t('Review results','Hersien uitslae'),t('Analysis','Ontleding'),t('Awards preview','Prysvoorskou'),t('Season manager','Seisoenbestuur')])
     with overview:
         x,y,z=st.columns(3)
         x.metric(t('Active athletes','Aktiewe atlete'), sum(bool(p['active']) for p in all_profiles))
         y.metric(t('Race entries','Wedloopinskrywings'),len(df))
         z.metric(t('Awaiting review','Wag op hersiening'),int(df.status.isin(['Pending','Imported']).sum()) if not df.empty else 0)
-        st.caption(t('Totals are from the permanent database. Only approved results count towards official metrics.',
-                     'Totale kom uit die permanente databasis. Slegs goedgekeurde uitslae tel vir amptelike maatstawwe.'))
+        st.caption(t(f'Online entries: {len(df)} · historical entries: {len(historic_display)}. Historical entries stay provisional until reviewed. Only approved results count toward award rankings.',
+                     f'Aanlyninskrywings: {len(df)} · historiese inskrywings: {len(historic_display)}. Slegs goedgekeurde uitslae tel vir pryse.'))
     with review:
         if df.empty: st.info(t('No submissions yet.','Nog geen inskrywings nie.'))
         else:
@@ -610,17 +671,19 @@ def run():
                     except Exception:
                         st.error(t('Could not save decision.','Kon nie besluit stoor nie.'))
     with analysis:
-        if df.empty: st.info(t('No results yet.','Nog geen uitslae nie.'))
+        if combined.empty: st.info(t('No results yet.','Nog geen uitslae nie.'))
         else:
+            st.caption(t('Includes historical imports. Only Approved entries qualify for award calculations.',
+                         'Sluit historiese invoere in. Slegs goedgekeurde inskrywings tel vir prysberekeninge.'))
             a,b,c=st.columns(3)
             _field_heading(t('Season','Seisoen'),a)
-            yr=a.selectbox(t('Season','Seisoen'), sorted({int(x) for x in df.season_year if pd.notna(x)}, reverse=True), label_visibility='collapsed')
-            groups=sorted(df.group.dropna().unique().tolist())
+            yr=a.selectbox(t('Season','Seisoen'), sorted({int(x) for x in combined.season_year if pd.notna(x)}, reverse=True), label_visibility='collapsed')
+            groups=sorted(combined.group.dropna().unique().tolist())
             _field_heading(t('Member category','Ledekategorie'),b)
             group=b.selectbox(t('Member category','Ledekategorie'), ['All']+groups, label_visibility='collapsed')
             _field_heading(t('Discipline','Dissipline'),c)
-            types=c.selectbox(t('Discipline','Dissipline'), ['All']+sorted(df.discipline.dropna().unique().tolist()), label_visibility='collapsed')
-            q=df[df.season_year.astype(str).str.startswith(str(yr))].copy()
+            types=c.selectbox(t('Discipline','Dissipline'), ['All']+sorted(combined.discipline.dropna().unique().tolist()), label_visibility='collapsed')
+            q=combined[combined.season_year.astype(str).str.startswith(str(yr))].copy()
             if group!='All':q=q[q.group==group]
             if types!='All':q=q[q.discipline==types]
             _field_heading(t('Race category','Wedloopkategorie'))
@@ -630,7 +693,7 @@ def run():
             race=st.selectbox(t('Specific race','Spesifieke wedloop'), ['All']+sorted(q.race_name.dropna().unique().tolist()), label_visibility='collapsed')
             if race!='All':q=q[q.race_name==race]
             _field_heading(t('Review status','Hersieningstatus'))
-            status=st.selectbox(t('Review status','Hersieningstatus'),['Approved','All','Pending','Imported','Rejected'], label_visibility='collapsed')
+            status=st.selectbox(t('Review status','Hersieningstatus'),['All','Approved','Pending','Imported','Rejected'], label_visibility='collapsed')
             if status!='All':q=q[q.status==status]
             if q.empty: st.info(t('No matching results.','Geen ooreenstemmende uitslae nie.'))
             else:
@@ -642,5 +705,9 @@ def run():
             st.info(t('Club award rankings are restricted to awards administrators.',
                       'Klubprysranglyste is slegs vir prysadministrateurs.'))
         else:
-            render_club_awards(sb, df, all_profiles, str(user.id), lang,
+            st.caption(t('Approved historical results are included in these provisional rankings. Gold verifications and Comrades milestone evidence remain separately controlled.',
+                         'Goedgekeurde historiese uitslae tel in die voorlopige ranglyste. Goud- en Comrades-mylpaalbewyse word afsonderlik beheer.'))
+            render_club_awards(sb, combined, all_profiles, str(user.id), lang,
                                date.today().year)
+    with seasons_tab:
+        render_season_manager(sb,lang,profile['role'],str(user.id))
