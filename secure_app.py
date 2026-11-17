@@ -69,13 +69,226 @@ def _fetch_all(query_builder, chunk=1000):
 
 def run():
     st.markdown('''<style>
-    .stApp{background:#F6F0E7;color:#27221F}
-    [data-testid="stSidebar"]{background:#FFFCF7}
-    [data-testid="stMetric"]{background:#fff;border:1px solid #EDE4D9;border-radius:18px;padding:18px}
-    .pilot-hero{background:linear-gradient(110deg,#A83B18,#E85D13,#FF9D24);color:#fff;padding:30px;border-radius:22px;margin-bottom:20px}
-    .pilot-hero h2{color:white!important;margin:0}.pilot-hero p{color:white!important}
-    div[role="radiogroup"] label{background:#FFFFFF!important;border:1px solid #D8C8B4;border-radius:999px;padding:8px 14px!important;margin-right:8px!important;color:#2F2823!important}
-    div[role="radiogroup"] label:has(input:checked){background:#FBE8DB!important;border-color:#D95116!important;box-shadow:inset 0 0 0 1px #D95116}
+    /* Bethlehem Marathon Klub: high-contrast light theme for ALL live pages.
+       Keeps login, results, submissions, committee and awards UI legible. */
+    :root {color-scheme:light!important;}
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+        background:#F6F0E7!important; color:#24201B!important;
+    }
+    [data-testid="stHeader"] {background:#F6F0E7!important;}
+    [data-testid="stSidebar"], [data-testid="stSidebarContent"] {
+        background:#FFFCF7!important; color:#24201B!important;
+    }
+    [data-testid="stSidebar"] {border-right:1px solid #E1D4C5!important;}
+
+    /* Titles, instructions, captions, and text: never inherit pale dark-mode colours. */
+    .stApp :is(h1,h2,h3,h4,h5,h6),
+    .stApp [data-testid="stMarkdownContainer"] :is(p,li,strong,em,small),
+    .stApp [data-testid="stCaptionContainer"] :is(p,span),
+    .stApp [data-testid="stText"] {
+        color:#29231F!important;
+        opacity:1!important;
+    }
+    .stApp [data-testid="stCaptionContainer"] :is(p,span) {
+        color:#5A4D42!important;
+    }
+    .stApp [data-testid="stSidebar"] :is(p,span,label,strong,small),
+    .stApp [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] *,
+    .stApp [data-testid="stSidebar"] [data-testid="stCaptionContainer"] * {
+        color:#332B25!important;
+        opacity:1!important;
+    }
+
+    /* Every form label: this was the source of the barely visible field headings. */
+    .stApp [data-testid="stWidgetLabel"],
+    .stApp [data-testid="stWidgetLabel"] *,
+    .stApp [data-testid="stForm"] label,
+    .stApp [data-testid="stForm"] label *,
+    .stApp [data-testid="stForm"] [data-testid="stMarkdownContainer"] :is(p,span),
+    .stApp [data-testid="stTextInput"] label *,
+    .stApp [data-testid="stNumberInput"] label *,
+    .stApp [data-testid="stDateInput"] label *,
+    .stApp [data-testid="stSelectbox"] label *,
+    .stApp [data-testid="stRadio"] label *,
+    .stApp [data-testid="stTextArea"] label * {
+        color:#302720!important;
+        opacity:1!important;
+        -webkit-text-fill-color:#302720!important;
+    }
+    .stApp [data-testid="stForm"] {
+        background:#FFFCF7!important;
+        border:1px solid #D7C7B5!important;
+        border-radius:16px!important;
+        padding:18px!important;
+    }
+
+    /* All native fields, dates, selects and numeric steppers share the same light theme. */
+    .stApp [data-baseweb="input"],
+    .stApp [data-baseweb="base-input"],
+    .stApp [data-baseweb="select"] > div,
+    .stApp [data-testid="stTextInput"] input,
+    .stApp [data-testid="stNumberInput"] input,
+    .stApp [data-testid="stDateInput"] input,
+    .stApp [data-testid="stTextArea"] textarea {
+        background:#FFFFFF!important;
+        color:#29231F!important;
+        -webkit-text-fill-color:#29231F!important;
+        border-color:#B8A797!important;
+        opacity:1!important;
+    }
+    .stApp [data-testid="stSelectbox"] [data-baseweb="select"] *,
+    .stApp [data-testid="stSelectbox"] [data-baseweb="select"] span,
+    .stApp [data-baseweb="select"] input,
+    .stApp [data-baseweb="select"] svg,
+    .stApp [data-testid="stNumberInput"] button,
+    .stApp [data-testid="stDateInput"] svg {
+        color:#29231F!important;
+        fill:currentColor;
+        opacity:1!important;
+    }
+    .stApp input::placeholder, .stApp textarea::placeholder {
+        color:#6A5B50!important;
+        -webkit-text-fill-color:#6A5B50!important;
+        opacity:1!important;
+    }
+    .stApp input:focus-visible, .stApp textarea:focus-visible {
+        outline:2px solid #BD4A19!important;
+        outline-offset:1px;
+    }
+    [role="listbox"], [role="listbox"] [role="option"] {
+        background:#FFFFFF!important;
+        color:#29231F!important;
+    }
+    [role="listbox"] [role="option"] * {color:#29231F!important;}
+
+    /* Sidebar and action selector radios: both selected and unselected are readable. */
+    .stApp [data-testid="stRadio"] [role="radiogroup"] {gap:10px!important;}
+    .stApp [data-testid="stRadio"] [role="radiogroup"] label {
+        background:#FFFFFF!important;
+        border:1px solid #C9B8A6!important;
+        border-radius:12px!important;
+        padding:8px 12px!important;
+        color:#29231F!important;
+        opacity:1!important;
+    }
+    .stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) {
+        background:#FFF0E2!important;
+        border:2px solid #B74715!important;
+    }
+    .stApp [data-testid="stRadio"] [role="radiogroup"] label *,
+    .stApp [data-testid="stRadio"] [role="radiogroup"] label p {
+        color:#29231F!important;
+        -webkit-text-fill-color:#29231F!important;
+        opacity:1!important;
+    }
+
+    /* Metrics and headings. */
+    .stApp [data-testid="stMetric"] {
+        background:#FFFFFF!important;
+        border:1px solid #DED0C0!important;
+        border-radius:18px!important;
+        padding:18px!important;
+    }
+    .stApp [data-testid="stMetricLabel"],
+    .stApp [data-testid="stMetricLabel"] *,
+    .stApp [data-testid="stMetricValue"],
+    .stApp [data-testid="stMetricValue"] * {
+        color:#29231F!important;
+        opacity:1!important;
+    }
+
+    /* Tabs and navigation including inactive controls. */
+    .stApp [data-testid="stTabs"] [role="tab"] {
+        color:#40352D!important;
+        background:#FFFFFF!important;
+        border:1px solid #D5C6B7!important;
+        border-radius:10px!important;
+        padding:10px 14px!important;
+        opacity:1!important;
+    }
+    .stApp [data-testid="stTabs"] [role="tab"] *,
+    .stApp [data-testid="stTabs"] [role="tab"] p {
+        color:#40352D!important;
+        opacity:1!important;
+    }
+    .stApp [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+        background:#B74715!important;
+        color:#FFFFFF!important;
+        border-color:#B74715!important;
+    }
+    .stApp [data-testid="stTabs"] [role="tab"][aria-selected="true"] * {
+        color:#FFFFFF!important;
+        -webkit-text-fill-color:#FFFFFF!important;
+    }
+    .stApp [data-testid="stTabs"] [role="tab"]:focus-visible,
+    .stApp button:focus-visible {
+        outline:3px solid #E98C43!important;
+        outline-offset:2px;
+    }
+
+    /* Buttons: high contrast for both primary and secondary states. */
+    .stApp [data-testid="stFormSubmitButton"] button,
+    .stApp .stButton button[kind="primary"],
+    .stApp [data-testid="stDownloadButton"] button[kind="primary"] {
+        background:#B74715!important;
+        border:1px solid #9F3B10!important;
+        color:#FFFFFF!important;
+        font-weight:700!important;
+        border-radius:12px!important;
+    }
+    .stApp [data-testid="stFormSubmitButton"] button *,
+    .stApp .stButton button[kind="primary"] *,
+    .stApp [data-testid="stDownloadButton"] button[kind="primary"] * {
+        color:#FFFFFF!important;
+        -webkit-text-fill-color:#FFFFFF!important;
+        opacity:1!important;
+    }
+    .stApp .stButton button:not([kind="primary"]),
+    .stApp [data-testid="stDownloadButton"] button:not([kind="primary"]) {
+        background:#FFFFFF!important;
+        color:#29231F!important;
+        border:1px solid #9E8977!important;
+    }
+    .stApp .stButton button:not([kind="primary"]) * {
+        color:#29231F!important;
+    }
+
+    /* Tables and editable values, where Streamlit exposes HTML wrappers. */
+    .stApp [data-testid="stTable"] {background:#FFFFFF!important;color:#29231F!important;}
+    .stApp [data-testid="stTable"] th {
+        background:#F0E6D9!important;
+        color:#29231F!important;
+        font-weight:700!important;
+    }
+    .stApp [data-testid="stTable"] td {
+        background:#FFFFFF!important;
+        color:#29231F!important;
+    }
+    .stApp [data-testid="stDataFrame"] {
+        background:#FFFFFF!important;
+        border:1px solid #D7C7B5!important;
+        border-radius:12px!important;
+        overflow:hidden;
+    }
+
+    /* Readable notices. Never rely on low-opacity labels. */
+    .stApp [data-testid="stAlert"] {opacity:1!important;}
+    .stApp [data-testid="stAlert"] :is(p,span,strong) {opacity:1!important;}
+
+    /* Only the orange hero has white text, deliberately. */
+    .stApp .pilot-hero {
+        background:linear-gradient(110deg,#A83B18,#D95116,#E88620)!important;
+        border-radius:22px!important;
+        color:#FFFFFF!important;
+        padding:30px!important;
+        margin-bottom:20px!important;
+    }
+    .stApp .pilot-hero, .stApp .pilot-hero :is(h1,h2,h3,h4,p,span,strong,small) {
+        color:#FFFFFF!important;
+        -webkit-text-fill-color:#FFFFFF!important;
+        opacity:1!important;
+    }
+    .stApp .pilot-hero h2 {margin:0!important;}
     </style>''', unsafe_allow_html=True)
     st.sidebar.image('logo.png', width=180)
     lang = st.sidebar.radio('Language / Taal', ['EN', 'AFR'], horizontal=True)
